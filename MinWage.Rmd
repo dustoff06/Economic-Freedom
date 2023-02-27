@@ -1,0 +1,292 @@
+---
+title: "ASiF Modeling"
+author: "Sith"
+date: "2023-02-06"
+output:
+  html_document:
+    theme: cerulean
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Libraries
+
+```{r}
+######################
+library(Amelia)      #
+library(car)         #
+library(elsa)        #
+library(foreign)     #
+library(ggplot2)     #
+library(ggcorrplot)  #
+library(ggExtra)     #
+library(grid)        #
+library(gridExtra)   #
+library(haven)       #
+library(leaflet)     #
+library(leaflet.extras)#
+library(MASS)        #
+library(maptools)    #
+library(psych)       #
+library(raster)      #
+library(RColorBrewer)#
+library(rgdal)       #
+library(rgeos)       #
+library(shiny)       #
+library(sf)          #
+library(sp)          #
+library(spatialreg)  #
+library(spData)      #
+library(spdep)       #
+library(tmap)        #
+library(tmaptools)   #
+library(tidyverse)   #
+library(usmap)       #
+library(leaps)       #
+library(caret)       #
+library(glmnet)      #
+library(spatialEco)  #
+library(lmSupport)   #
+library(lars)        #
+library(glmpath)     #
+library(covTest)     #
+library(spatialEco)  #
+######################
+```
+
+# Base Functions
+
+```{r}
+
+corfunction=function(d){
+  mycorr=cor(d[, 1:ncol(d)]); p.mat=ggcorrplot::cor_pmat(d[,1:ncol(d)])
+  myplot=ggcorrplot(mycorr, hc.order=TRUE,type="lower",
+                    colors=c("red", "white","green"),tl.cex = 8, 
+                    tl.col = "black", lab=TRUE, lab_size=2, p.mat=p.mat,
+                    insig="pch", pch=4)
+  print(myplot)}
+
+```
+
+# Load Data & Check Missing
+
+```{r}
+
+mydf=read_dta('C:/Users/lfult/Documents/Minimum Wage/2017.dta')
+mydf=mydf %>% mutate_if(is.factor, na_if, y = "")
+missmap(mydf, x.cex=.5)
+
+```
+# Missing by Column
+
+```{r}
+
+myc = function(x){
+  co=rep(0,ncol(mydf))
+  for (i in 1:ncol(x)){co[i]=sum(is.na(x[1:nrow(x), i]))}
+  names(co)=colnames(mydf)
+  co=sort(co, decreasing=T)/nrow(mydf)
+  print(length(co[co>.2]))
+  tmp=co[1:13]
+  barplot(tmp, las=2, cex.names=.5, space=0)
+  print(names(tmp))
+  return(co)
+}
+
+myc(mydf)
+
+```
+
+
+# Clean
+
+```{r}
+
+mydf$cpiaverage=NULL #Constant
+mydf$match_OES_beaACSmefi=mydf$match_ACS_MEFI=mydf$match_BEA_ACSmefi=NULL  #Limitation Discussion Only
+mydf$marker_metroSA=mydf$marker_microSA=NULL #One is a constant.  The other is all NAs except for 1 observation.
+mydf$marker_MSA=mydf$fed_min_wage=mydf$fed_min_wage2020dollars=NULL #Constants
+mydf$state_min_wage2020dollars=mydf$effective_min_wage2020dollars=NULL #Inflate in discussion, not dataseet
+mydf$occ_title=NULL #Only one used
+
+mydf$multi_state_MSA=mydf$MEFI_prim_state= NULL #Limitation Only
+othdf=mydf[384:nrow(mydf),] #NAs since were not used previously by MEFI
+mydf=mydf[-c(384:nrow(mydf)),]
+write.csv(othdf,'C:/Users/lfult/Documents/Minimum Wage/other.csv', row.names=F)
+#Some Manual Manipulation for Simplification
+missmap(mydf)
+
+```
+# Remove Missing Row
+
+```{r}
+
+#Doesn't have metrics to build index!  Twin Falls.
+mydf=mydf[-352,]
+missmap(mydf)
+write.csv(mydf,'C:/Users/lfult/Documents/Minimum Wage/total.csv', row.names=F)
+mydf=read.csv('C:/Users/lfult/Documents/Minimum Wage/total.csv', stringsAsFactors = T)
+str(mydf)
+
+
+```
+
+
+
+# Describe
+
+```{r}
+
+describe(mydf)
+
+```
+
+# Some Correlations
+
+```{r}
+
+corfunction(mydf[,4:6])
+corfunction(mydf[,c(8:11)]) #Scores
+corfunction(mydf[,c(12:14)]) #Ranks (Delete these)
+corfunction(mydf[,c(15,18,21)])#Standardized Score 1.  NOTE: not actually standardized!
+corfunction(mydf[,c(16,19,22)])#Rank Score 1.  NOT useful.  Can be built separately.
+corfunction(mydf[,c(17,20,23)])#Raw Score 1.
+corfunction(mydf[,c(24,27,30)])#Standardized Score 2
+corfunction(mydf[,c(25,28,31)])#Rank Score 2
+corfunction(mydf[,c(26,29,32)])#Raw Score 2
+corfunction(mydf[,c(33,36,39)])#Standardized Score 3
+corfunction(mydf[,c(34,37,40)])#Rank Score 3
+corfunction(mydf[,c(35,38,41)])#Raw Score 3
+corfunction(mydf[,c(56:86)]) #Income Data, Must drop many, many variables..you choose.
+corfunction(mydf[, c(89,92)])
+corfunction(mydf[,c(88, 90:91, 93:102, 104:105)]) #Min Wage Data
+
+
+```
+# Drop Variables that are Repititious
+
+```{r}
+
+mydf$pi5=mydf$pi11=mydf$pi22=mydf$pi27=mydf$pi23=mydf$pi7=mydf$pi30=mydf$pi12=mydf$pi21=mydf$pi13=mydf$pi6=NULL
+mydf$pi31=mydf$pi24=mydf$pi4=mydf$pi26=mydf$pi10=mydf$pi25=mydf$pi29=mydf$pi17=NULL
+mydf$h_median=mydf$h_pct25=mydf$h_pct75=mydf$h_mean=mydf$h_pct90=mydf$h_pct10=NULL
+corfunction(mydf[,c(56:67)])
+corfunction(mydf[,c(70:77)])
+
+```
+
+# Principal Components
+
+```{r}
+
+#Overalll
+
+mypca1=princomp(mydf[,9:11], cor=T) #Major Subscores
+summary(mypca1)
+
+#Subcomponents
+
+mypca2=princomp(mydf[,c(17,20,23)], cor=T)
+summary(mypca2)
+
+mypca3=princomp(mydf[,c(25,28,31)], cor=T)
+summary(mypca3)
+
+mypca4=princomp(mydf[,c(35,38,41)], cor=T)
+summary(mypca4)
+
+#If MEFI is measuring the construct of 'Economic Freedom,’ then there should be largely one principal component that emerges from the separate raw subcomponents and the directionality should be consistent. 
+
+totalpca=princomp(mydf[,c(17,20,23,25,28,31,35,38,41)], cor=T)
+totalpca
+summary(totalpca)
+
+#Even without confirmatory structural equation modeling to verify the MEFI, we see it doesn't hold water.
+
+corfunction(mydf[,c(17,20,23,25,28,31,35,38,41)])
+
+```
+
+
+# Get the CBSA Shape File for 2017
+
+```{r}
+
+myshape=shapefile("tl_2017_us_cbsa.shp")  
+
+```
+
+# Merge
+
+```{r}
+
+myshape$M=as.numeric(myshape$GEOID)
+mydf$M=as.numeric(mydf$GeoFips)
+CBSA=merge(myshape, mydf, by="M",all.x=T,type="left")
+CBSA=sp.na.omit(CBSA)
+
+```
+# Map of Current MEFI
+
+```{r resplot1}
+
+library(leaflet)
+library(leaflet.extras)
+qpal<-colorBin(c("red", "orange", "green"), 1:400)
+qpal2<-colorBin(c("red", "orange", "green"), 700:1213)
+
+leaf=leaflet(CBSA) %>%
+  addTiles(group = "OSM (default)") %>%
+  addMapPane("borders", zIndex = 410) %>%
+  
+  #Base Diagrams
+  addPolylines(data = CBSA,color = "black",
+               opacity = 1, weight = 1, group="Borders", options = pathOptions(pane="borders"))%>%
+  fitBounds(-124.8, -66.9, 24.4,49.4) %>% setView(-98.6, 39.83, zoom = 4)%>%
+  
+  addPolygons(stroke = FALSE,fillOpacity = 1, smoothFactor = 0.2, 
+              color=~qpal(CBSA@data$rank_EFI_2017), 
+              popup = paste("CBSA: ", CBSA@data$NAME, "<br>", 
+                    "Rank: ", CBSA@data$rank_EFI_2017, "<br>",
+                    "Minimum Wage ", round(CBSA@data$state_min_wage,2)), 
+              group="MEFI")%>%
+  
+  addPolygons(stroke = FALSE,fillOpacity = 1, smoothFactor = 0.2, 
+              color=~qpal2(CBSA@data$h_pct10*100), 
+              popup = paste("CBSA: ", CBSA@data$NAME, "<br>", 
+                    "Lowest 10%: ", CBSA@data$h_pct10, "<br>",
+                    "Minimum Wage ", round(CBSA@data$state_min_wage,2)), 
+              group="Lowest 10%")%>%
+  
+  addLegend(data=CBSA, 
+            "bottomleft", opacity=1, pal = qpal, 
+            values = ~CBSA@data$rank_EFI_2017,
+            title = "MEFI")%>%
+  
+    addLegend(data=CBSA, 
+            "bottomright", opacity=1, pal = qpal2, 
+            values = ~CBSA@data$h_pct10,
+            title = "Lowest 10% in Cents")%>%
+  
+  addLayersControl(
+    baseGroups = c("MEFI", "Lowest 10%"),
+    overlayGroups = c("Borders"), options = layersControlOptions(collapsed = TRUE))
+
+leaf
+  
+  
+  
+  
+```
+
+
+
+
