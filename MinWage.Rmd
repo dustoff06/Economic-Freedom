@@ -1,0 +1,215 @@
+---
+title: "ASiF Modeling"
+author: "Sith"
+date: "2023-02-06"
+output:
+  html_document:
+    theme: cerulean
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Libraries
+
+```{r}
+######################
+library(Amelia)      #
+library(car)         #
+library(elsa)        #
+library(foreign)     #
+library(ggplot2)     #
+library(ggcorrplot)  #
+library(ggExtra)     #
+library(grid)        #
+library(gridExtra)   #
+library(haven)       #
+library(leaflet)     #
+library(leaflet.extras)#
+library(MASS)        #
+library(maptools)    #
+library(psych)       #
+library(raster)      #
+library(RColorBrewer)#
+library(rgdal)       #
+library(rgeos)       #
+library(shiny)       #
+library(sf)          #
+library(sp)          #
+library(tidyverse)   #
+library(usmap)       #
+######################
+```
+
+# Base Functions
+
+```{r}
+
+corfunction=function(d){
+  mycorr=cor(d[, 1:ncol(d)]); p.mat=ggcorrplot::cor_pmat(d[,1:ncol(d)])
+  myplot=ggcorrplot(mycorr, hc.order=TRUE,type="lower",
+                    colors=c("red", "white","green"),tl.cex = 8, 
+                    tl.col = "black", lab=TRUE, lab_size=2, p.mat=p.mat,
+                    insig="pch", pch=4)
+  print(myplot)}
+
+```
+
+# Load Data & Check Missing
+
+```{r}
+
+mydf=read_dta('C:/Users/lfult/Documents/Minimum Wage/2017.dta')
+write.csv(mydf, 'C:/Users/lfult/Documents/Minimum Wage/originalfile.csv', row.names = F)
+mydf=mydf %>% mutate_if(is.factor, na_if, y = "")
+missmap(mydf, x.cex=.5)
+
+```
+
+# Missing by Column
+
+```{r}
+
+myc = function(x){
+  co=rep(0,ncol(mydf))
+    for (i in 1:ncol(x)){co[i]=sum(is.na(x[1:nrow(x), i]))}
+    names(co)=colnames(mydf)
+    co=sort(co, decreasing=T)/nrow(mydf)
+    tmp=co[1:13]
+    barplot(tmp, las=2, cex.names=.5, space=0)
+}
+
+myc(mydf)
+
+```
+
+
+# Clean
+
+```{r}
+
+mydf$cpiaverage=NULL #Constant
+mydf$match_OES_beaACSmefi=mydf$match_ACS_MEFI=mydf$match_BEA_ACSmefi=NULL  #Limitation Discussion Only
+mydf$marker_metroSA=mydf$marker_microSA=NULL #One is a constant.  The other is all NAs except for 1 obs. observation.
+mydf$marker_MSA=mydf$fed_min_wage=mydf$fed_min_wage2020dollars=NULL #Constants
+mydf$state_min_wage2020dollars=mydf$effective_min_wage2020dollars=NULL #Inflate in discussion, not dataseet
+mydf$occ_title=NULL #Only one used
+mydf$multi_state_MSA=mydf$MEFI_prim_state= NULL #Limitation Only
+othdf=mydf[384:nrow(mydf),] #NAs since were not used previously by MEFI
+mydf=mydf[-c(384:nrow(mydf)),]
+write.csv(othdf,'C:/Users/lfult/Documents/Minimum Wage/other.csv', row.names=F)
+#Some Manual Manipulation for Simplification
+missmap(mydf)
+
+```
+
+# Remove Missing Row
+
+
+```{r}
+
+#Doesn't have metrics to build index!  Twin Falls.
+mydf=mydf[-352,]
+missmap(mydf)
+write.csv(mydf,'C:/Users/lfult/Documents/Minimum Wage/total.csv', row.names=F)
+mydf=read.csv('C:/Users/lfult/Documents/Minimum Wage/total.csv', stringsAsFactors = T)
+str(mydf)
+
+
+```
+
+
+
+# Describe
+
+```{r}
+
+describe(mydf)
+
+```
+
+
+
+# Get the mydf Shape File for 2017
+
+```{r}
+
+myshape=shapefile("tl_2017_us_cbsa.shp")  
+
+```
+
+# Merge
+
+```{r}
+
+myshape$M=as.numeric(myshape$GEOID)
+mydf$M=as.numeric(mydf$GeoFips)
+mydf=merge(myshape, mydf, by="M",all.x=T,type="left")
+mydf=na.omit(mydf)
+rm(myshape)
+
+
+```
+# Map of Current MEFI
+
+```{r resplot1}
+
+library(leaflet)
+library(leaflet.extras)
+qpal<-colorBin(c("green", "orange", "red"), 1:400)
+qpal2<-colorBin(c("green", "orange", "red"), 700:1213)
+
+leaf=leaflet(mydf) %>%
+  addTiles(group = "OSM (default)") %>%
+  addMapPane("borders", zIndex = 410) %>%
+  
+  #Base Diagrams
+  addPolylines(data = mydf,color = "black",
+               opacity = 1, weight = 1, group="Borders", options = pathOptions(pane="borders"))%>%
+  fitBounds(-124.8, -66.9, 24.4,49.4) %>% setView(-98.6, 39.83, zoom = 4)%>%
+  
+  addPolygons(stroke = FALSE,fillOpacity = 1, smoothFactor = 0.2, 
+              color=~qpal(mydf@data$rank_EFI_2017), 
+              popup = paste("mydf: ", mydf@data$NAME, "<br>", 
+                    "Rank: ", mydf@data$rank_EFI_2017, "<br>",
+                    "Minimum Wage ", round(mydf@data$state_min_wage,2)), 
+              group="MEFI Rank")%>%
+  
+  addPolygons(stroke = FALSE,fillOpacity = 1, smoothFactor = 0.2, 
+              color=~qpal2(mydf@data$h_pct10*100), 
+              popup = paste("mydf: ", mydf@data$NAME, "<br>", 
+                    "Lowest 10%: ", mydf@data$h_pct10, "<br>",
+                    "Minimum Wage ", round(mydf@data$state_min_wage,2)), 
+              group="Lowest 10%")%>%
+  
+  addLegend(data=mydf, 
+            "bottomleft", opacity=1, pal = qpal, 
+            values = ~mydf@data$rank_EFI_2017,
+            title = "MEFI")%>%
+  
+    addLegend(data=mydf, 
+            "bottomright", opacity=1, pal = qpal2, 
+            values = ~mydf@data$h_pct10,
+            title = "Lowest 10%")%>%
+  
+  addLayersControl(
+    baseGroups = c("MEFI Rank", "Lowest 10%"),
+    overlayGroups = c("Borders"), options = layersControlOptions(collapsed = TRUE))
+
+leaf
+  
+  
+  
+  
+```
+
+
+
+

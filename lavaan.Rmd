@@ -1,0 +1,499 @@
+---
+title: "Lavaan"
+author: "Sith"
+date: "2023-03-30"
+output:
+  html_document:
+    theme: cerulean
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+setwd('C:/Users/lfult/Documents/Minimum Wage/')
+
+```
+
+
+# Lavaan
+
+Minimum set of libraries
+
+```{r}
+
+require(car)
+require(ggcorrplot)
+require(kableExtra)
+require(lavaan)
+require(lavaanPlot)
+require(psych)
+require(ResourceSelection)
+require(semPlot)
+require(tidySEM)
+require(performance)
+
+mydata=read.csv('jasp4.csv')
+
+```
+
+# Functions
+
+Correlation, printing, and citing
+
+```{r}
+
+
+corfunction=function(d,m='pearson',sz=2){
+  mycorr=cor(d[, 1:ncol(d)], method=m); p.mat=ggcorrplot::cor_pmat(d[,1:ncol(d)])
+  myplot=ggcorrplot(mycorr, hc.order=T,type="lower",
+                    colors=c("red", "white","green"),tl.cex = 8, 
+                    tl.col = "black", lab=TRUE, lab_size=sz, p.mat=p.mat,sig.level=0.01,
+                    insig="pch", pch=4)
+  print(myplot)}
+
+myprint=function(x){x%>%kbl()%>%kable_classic(html_font = "Cambria")}
+mycite=function(x){citation(x)}
+
+```
+
+
+
+# Descriptives
+
+Descriptives prior to normalizing
+
+
+```{r}
+
+myprint(describe(mydata))
+
+
+```
+
+# Correlations
+
+```{r}
+#colnames(mydata)[4:13]=c('X1A','X1B','X1C','X2A','X2B','X2C','X3A', 'X3B','X3C', 'New3A')
+corfunction(mydata[,-c(1:3)], ,3)
+
+```
+
+
+# KDE Pairs Plot 1
+
+KDE Pairs of data
+
+```{r}
+
+kdepairs(mydata[, 2:3])
+kdepairs(mydata[,4:6])
+kdepairs(mydata[,7:9])
+kdepairs(mydata[,10:13])
+
+
+```
+
+
+# Normalize
+
+Z-scores to adjust for magnitudes
+
+
+```{r}
+
+tempname=mydata$GeoName
+mydata[,4:13]=as.data.frame(apply(mydata[, 4:13], 2, 'scale'))
+mydata$GeoName=tempname
+myprint(describe(mydata))
+
+```
+
+
+
+# Correlations
+
+Not hierarchically clustered
+
+
+```{r}
+
+corfunction(mydata[,4:13])
+
+```
+
+
+# M1 Base with Cov
+
+Baseline model
+
+Estimate of negative variance exists for the forced additive measure of Economic Freedom (P2 and P3). 
+
+
+```{r}
+
+colnames(mydata)[4:13]=c('X1A','X1B','X1C','X2A','X2B','X2C','X3A', 'X3B','X3C', 'New3A')
+
+mod='
+#Score~EF
+Economic_Freedom=~1/3*Government_Spending+1/3*Taxation+1/3*Labor_Market_Freedom
+Government_Spending=~1/3*X1A+1/3*X1B+1/3*X1C
+Taxation=~1/3*X2A+1/3*X2B+1/3*X2C
+Labor_Market_Freedom=~1/3*X3A+1/3*X3B+1/3*X3C
+
+'
+
+
+fit=cfa(mod, data=mydata, do.fit=T, estimator='DWLS')
+(mys1=summary(fit, standardized=T,fit.measures = TRUE))
+lavaanPlot(model = fit, edge_options = list(color = "grey"),coefs = TRUE, covs=F)
+
+
+temp2=lavPredict(fit)[,1]
+mydata$ScoreM1=10*(temp2-min(temp2))/(max(temp2)-min(temp2)) #scale between 0 and 10
+
+
+```
+
+# M2 Sub with Cov
+
+Estimate of negative variance exists for the forced additive measure of Economic Freedom (P2 and P3). 
+
+```{r}
+
+
+mod='
+Economic_Freedom=~1/3*Government_Spending+1/3*Taxation+1/3*Labor_Market_Freedom
+Government_Spending=~1/3*X1A+1/3*X1B+1/3*X1C
+Taxation=~1/3*X2A+1/3*X2B+1/3*X2C
+Labor_Market_Freedom=~1/3*New3A+1/3*X3B+1/3*X3C
+
+'
+
+fit=cfa(mod, data=mydata, do.fit=T, estimator='DWLS')
+(mys2=summary(fit, standardized=T,fit.measures = TRUE))
+lavaanPlot(model = fit, edge_options = list(color = "grey"),coefs = TRUE,covs=T)
+
+
+
+temp2=lavPredict(fit)[,1]
+mydata$ScoreM2=10*(temp2-min(temp2))/(max(temp2)-min(temp2)) #scale between 0 and 10
+
+```
+
+# M3 Non-Fixed Weights
+
+Statistically significant estimate of negative variance exists for the forced additive measure of Economic Freedom (P1). 
+
+```{r}
+
+lavOptions("verbose")
+
+mod='
+Economic_Freedom=~Government_Spending+Taxation+Labor_Market_Freedom
+Government_Spending=~X1A+X1B+X1C
+Taxation=~X2A+X2B+X2C
+Labor_Market_Freedom=~X3A+X3B+X3C
+
+
+'
+
+fit=cfa(mod, data=mydata, do.fit=T, estimator='DWLS')
+(mys3=summary(fit, standardized=T, fit.measures = TRUE))
+lavaanPlot(model = fit, edge_options = list(color = "grey"),coefs = TRUE, covs=F)
+
+
+
+temp2=lavPredict(fit)[,1]
+mydata$ScoreM3=10*(temp2-min(temp2))/(max(temp2)-min(temp2)) #scale between 0 and 10
+
+```
+
+
+# M4 Sub Weights Free
+
+Statistically significant estimate of negative variance exists for the forced additive measure of Economic Freedom (P2). 
+
+```{r}
+
+
+mod='
+Economic_Freedom=~Government_Spending+Taxation+Labor_Market_Freedom
+Government_Spending=~X1A+X1B+X1C
+Taxation=~X2A+X2B+X2C
+Labor_Market_Freedom=~New3A+X3B+X3C
+
+'
+
+fit=cfa(mod, data=mydata, do.fit=T, estimator='DWLS')
+(mys4=summary(fit, standardized=T, fit.measures=TRUE))
+lavaanPlot(model = fit, edge_options = list(color = "grey"),coefs = TRUE,covs=F)
+
+
+
+temp2=lavPredict(fit)[,1]
+mydata$ScoreM4=10*(temp2-min(temp2))/(max(temp2)-min(temp2)) #scale between 0 and 10
+
+```
+
+# EFA 1
+
+```{r}
+
+mod='
+Economic_Freedom=~X1A+X1B+X1C+X2A+X2B+X2C+X3A+X3B+X3C
+'
+
+fit=efa(data=mydata[,4:12], do.fit=T, estimator='DWLS', rotation='varimax', nfactors=3, sample.cov=cor(mydata[,4:12]), rotation.args = list(geomin.epsilon = 0.05, rstarts = 1, orthogonal=T))
+summary(fit, standardized=T, fit.measures = TRUE, cutoff=0.4)
+
+
+
+```
+
+
+
+# M5 Base, EFA-Based with Covariance Structure
+
+Model fits.  (Estimate of negative variance statistically insignificant) 
+
+```{r}
+
+mod='
+#Score~EF
+Economic_Freedom=~F1+F2+F3
+F1=~X2A+X2B
+F2=~X1A+X1B+X3A+X3B
+F3=~X1C+X3C
+
+
+'
+#optimal covariance structure
+
+fit=sem(mod, data=mydata, do.fit=T, estimator='DWLS')
+(mys5=summary(fit, standardized=T, fit.measures=T))
+lavaanPlot(model = fit, edge_options = list(color = "grey"),coefs = TRUE, covs=F)
+
+temp2=lavPredict(fit)[,1]
+mydata$ScoreM5=10*(temp2-min(temp2))/(max(temp2)-min(temp2)) #scale between 0 and 10
+
+```
+# EFA 2
+
+```{r}
+
+mod='
+Economic_Freedom=~X1A+X1B+X1C+X2A+X2B+X2C+New3A+X3B+X3C
+
+'
+
+fit=efa(data=mydata[, c(4:9,11:13)], do.fit=T, estimator='DWLS', rotation='varimax', nfactors=3, sample.cov=cor(mydata[, c(4:9,11:13)]), rotation.args = list(geomin.epsilon = 0.05, rstarts = 1, orthogonal=T))
+summary(fit, standardized=T, fit.measures = TRUE, cutoff=.4)
+
+
+
+```
+
+
+
+# M6 Sub, EFA-Based, with Covariance Structure
+
+Model fits.  (Estimate of negative variance statistically insignificant) 
+
+
+```{r}
+
+
+mod='
+Economic_Freedom=~F1+F2+F3
+F1=~X1A+X1B+X3B
+F2=~X2A+X2B
+F3=~X1C+X3C+New3A
+
+
+'
+#optimal covariance structure for fit
+
+fit=sem(mod, data=mydata, do.fit=T, estimator='DWLS')
+(mys6=summary(fit, standardized=T, fit.measures=T))
+lavaanPlot(model = fit, edge_options = list(color = "grey"),coefs = TRUE, covs=F)
+
+
+
+temp2=lavPredict(fit)[,1]
+mydata$ScoreM6=10*(temp2-min(temp2))/(max(temp2)-min(temp2)) #scale between 0 and 10
+
+```
+
+
+# Top 10
+
+```{r}
+
+newdata=subset(mydata, select=c('GeoName','MEFI_Score', 'New_MEFI_Score', 'ScoreM1', 'ScoreM2', 'ScoreM3','ScoreM4','ScoreM5','ScoreM6'))
+
+MEFI=newdata[order(-newdata$MEFI_Score),]
+MEFI$RankOriginal=seq(1:nrow(MEFI))
+
+MEFI=MEFI[order(-MEFI$New_MEFI_Score),]
+MEFI$RankNewScore=seq(1:nrow(MEFI))
+
+MEFI=MEFI[order(-MEFI$ScoreM1),]
+MEFI$RankM1=seq(1:nrow(MEFI))
+
+MEFI=MEFI[order(-MEFI$ScoreM2),]
+MEFI$RankM2=seq(1:nrow(MEFI))
+
+MEFI=MEFI[order(-MEFI$ScoreM3),]
+MEFI$RankM3=seq(1:nrow(MEFI))
+
+MEFI=MEFI[order(-MEFI$ScoreM4),]
+MEFI$RankM4=seq(1:nrow(MEFI))
+
+MEFI=MEFI[order(-MEFI$ScoreM5),]
+MEFI$RankM5=seq(1:nrow(MEFI))
+
+MEFI=MEFI[order(-MEFI$ScoreM6),]
+MEFI$RankM6=seq(1:nrow(MEFI))
+
+write.csv(MEFI,'MEFI.csv', row.names=F)
+
+
+```
+
+
+# Rank Correlation
+
+```{r}
+
+cor(MEFI[, c(10:11,14:17)], method='spearman')
+corfunction(MEFI[,c(10:11,14:17)], 'spearman', 3)
+
+```
+
+# Model Performance
+
+```{r}
+
+require(tidyverse)
+mydf=as.data.frame(round(rbind(mys1$fit, mys2$fit, mys3$fit,mys4$fit,mys5$fit,mys6$fit),5))
+rownames(mydf)=c('M1','M2', 'M3','M4','M5','M6')
+mydf$Model=rownames(mydf)
+mydf[,6:8]%>%kbl(caption='Scaled Chi Squared Test of Fit (Null:  Perfect Fit)')%>%kable_classic(html_font='Cambria')
+mydf[,c(11:13)]%>%kbl(caption='Tests of RMSEA')%>%kable_classic(html_font='Cambria')
+
+mysub=mydf[,c(9,10)]%>%pivot_longer(everything(), names_to='metric', values_to='value')
+mysub$Model=c(rep('M1',2),rep('M2',2),rep('M3',2),rep('M4',2),rep('M5',2),rep('M6',2))
+
+
+myplot=ggplot(mysub, aes(x=metric, y=value, fill=Model))+geom_bar(stat='identity', alpha=.5, position='dodge')+
+  geom_text(aes(label = round(value, 3)), 
+            position = position_dodge(.9),
+            color="black",vjust = .5,hjust =1, angle = 90)+xlab("")+ylab("Metric Value")
+myplot
+
+path1 <- data.frame(x=c(.5,1.5),y=c(.95,.95), Model=c('Benchmark'))
+path2 <- data.frame(x=c(1.5,2.5),y=c(.9,.9), Model=c('Benchmark'))
+q <- myplot + geom_path(data=path1,aes(x=x, y=y, col=Model))
+q <- q + geom_path(data=path2,aes(x=x, y=y, col=Model))+ylim(0, 1.2)
+q
+
+
+
+```
+
+
+
+# Top k
+
+
+```{r}
+k=10
+
+BaseTop=MEFI[MEFI$RankOriginal<=k,]
+BaseTop=select(BaseTop, c('GeoName','RankOriginal'))
+BaseTop=BaseTop[order(BaseTop$RankOriginal),"GeoName"]
+
+SubTop=MEFI[MEFI$RankNewScore<=k,]
+SubTop=select(SubTop, c('GeoName','RankNewScore'))
+SubTop=SubTop[order(SubTop$RankNewScore),"GeoName"]
+
+
+M3Top=MEFI[MEFI$RankM3<=k,]
+M3Top=select(M3Top, c('GeoName','RankM3'))
+M3Top=M3Top[order(M3Top$RankM3),"GeoName"]
+
+M4Top=MEFI[MEFI$RankM4<=k,]
+M4Top=select(M4Top, c('GeoName','RankM4'))
+M4Top=M4Top[order(M4Top$RankM4),"GeoName"]
+
+M5Top=MEFI[MEFI$RankM5<=k,]
+M5Top=select(M5Top, c('GeoName','RankM5'))
+M5Top=M5Top[order(M5Top$RankM5),"GeoName"]
+
+M6Top=MEFI[MEFI$RankM6<=k,]
+M6Top=select(M6Top, c('GeoName','RankM6'))
+M6Top=M6Top[order(M6Top$RankM6),"GeoName"]
+
+newdf=as.data.frame(cbind(BaseTop, SubTop, M3Top, M4Top, M5Top,M6Top))
+myprint(newdf)
+myt=table(as.matrix(newdf))
+myprint(myt[order(myt, decreasing=T)])
+
+```
+
+# Bottom k
+
+
+```{r}
+
+k=nrow(MEFI)-10
+
+BaseBottom=MEFI[MEFI$RankOriginal>k,]
+BaseBottom=select(BaseBottom, c('GeoName','RankOriginal'))
+BaseBottom=BaseBottom[order(BaseBottom$RankOriginal),"GeoName"]
+
+SubBottom=MEFI[MEFI$RankNewScore>k,]
+SubBottom=select(SubBottom, c('GeoName','RankNewScore'))
+SubBottom=SubBottom[order(SubBottom$RankNewScore),"GeoName"]
+
+
+M3Bottom=MEFI[MEFI$RankM3>k,]
+M3Bottom=select(M3Bottom, c('GeoName','RankM3'))
+M3Bottom=M3Bottom[order(M3Bottom$RankM3),"GeoName"]
+
+M4Bottom=MEFI[MEFI$RankM4>k,]
+M4Bottom=select(M4Bottom, c('GeoName','RankM4'))
+M4Bottom=M4Bottom[order(M4Bottom$RankM4),"GeoName"]
+
+M5Bottom=MEFI[MEFI$RankM5>k,]
+M5Bottom=select(M5Bottom, c('GeoName','RankM5'))
+M5Bottom=M5Bottom[order(M5Bottom$RankM5),"GeoName"]
+
+M6Bottom=MEFI[MEFI$RankM6>k,]
+M6Bottom=select(M6Bottom, c('GeoName','RankM6'))
+M6Bottom=M6Bottom[order(M6Bottom$RankM6),"GeoName"]
+
+newdf=as.data.frame(cbind(BaseBottom, SubBottom, M3Bottom, M4Bottom, M5Bottom,M6Bottom))
+myprint(newdf)
+myt=table(as.matrix(newdf))
+myprint(myt[order(myt, decreasing=T)])
+
+
+```
+
+# Best Fit Model
+
+```{r}
+
+myprint(MEFI[order(MEFI$RankM6, decreasing=F),c(1,17)])
+
+```
+
+
+
